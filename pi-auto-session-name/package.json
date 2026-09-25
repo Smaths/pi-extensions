@@ -1,0 +1,14 @@
+{
+  "name": "pi-auto-session-name",
+  "version": "0.1.0",
+  "description": "Private-by-default automatic Pi session names",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "files": ["index.ts", "README.md"],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "pi-herdr-git-status",
+  "version": "0.1.0",
+  "description": "Git status and session usage footer for Pi",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "files": [
+    "index.ts",
+    "README.md",
+    "screenshot.png"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

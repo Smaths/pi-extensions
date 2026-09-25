@@ -1,0 +1,33 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Herdr-managed integration
+/herdr-agent-state/
+
+# Dependencies
+node_modules/
+
+# Build, test, and coverage output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local package archives
+*.tgz
+
+# Logs and local environment files
+*.log
+.env
+.env.*
+!.env.example
+
+# Local caches and temporary files
+.cache/
+tmp/
+temp/

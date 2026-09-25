@@ -1,0 +1,20 @@
+{
+  "name": "pi-herdr-runtime-metadata",
+  "version": "0.1.0",
+  "description": "Pi runtime metadata reporting for Herdr",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "files": [
+    "index.ts",
+    "README.md",
+    "screenshot.png"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
