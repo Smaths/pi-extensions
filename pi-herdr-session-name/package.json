@@ -1,0 +1,19 @@
+{
+  "name": "@snarfum/pi-herdr-session-name",
+  "version": "0.1.0",
+  "description": "Publish the Pi session name as the Herdr pane title and sidebar metadata",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["index.ts", "README.md", "screenshot.png"],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
