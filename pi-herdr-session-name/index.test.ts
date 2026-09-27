@@ -13,12 +13,13 @@ afterEach(async () => {
 	for (const key of ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "PI_HERDR_SESSION_NAME_TITLE"]) delete process.env[key];
 });
 
-async function harness(options: { mode?: string; env?: Record<string, string>; dropConnections?: number } = {}) {
+async function harness(options: { mode?: string; env?: Record<string, string>; dropConnections?: number; reject?: number } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "pi-herdr-session-name-"));
 	const socketPath = join(dir, "herdr.sock");
 	const requests: any[] = [];
 	const waiters: (() => void)[] = [];
 	let dropConnections = options.dropConnections ?? 0;
+	let reject = options.reject ?? 0;
 	const server = net.createServer((socket) => {
 		if (dropConnections > 0) {
 			dropConnections -= 1;
@@ -32,7 +33,9 @@ async function harness(options: { mode?: string; env?: Record<string, string>; d
 			if (newline < 0) return;
 			const request = JSON.parse(buffer.slice(0, newline));
 			requests.push(request);
-			socket.end(`${JSON.stringify({ id: request.id, result: { type: "ok" } })}\n`);
+			const reply = reject > 0 ? { id: request.id, error: { message: "rejected" } } : { id: request.id, result: { type: "ok" } };
+			if (reject > 0) reject -= 1;
+			socket.end(`${JSON.stringify(reply)}\n`);
 			for (const waiter of waiters.splice(0)) waiter();
 		});
 	});
@@ -40,10 +43,10 @@ async function harness(options: { mode?: string; env?: Record<string, string>; d
 	cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())), () => rmSync(dir, { recursive: true, force: true }));
 
 	Object.assign(process.env, { HERDR_ENV: "1", HERDR_SOCKET_PATH: socketPath, HERDR_PANE_ID: "w1:p1" }, options.env);
-	const handlers = new Map<string, (event: any, ctx: any) => void>();
+	const handlers = new Map<string, (event: any, ctx: any) => unknown>();
 	const state = { name: "" as string | undefined };
 	const pi = {
-		on: (event: string, handler: (event: any, ctx: any) => void) => handlers.set(event, handler),
+		on: (event: string, handler: (event: any, ctx: any) => unknown) => handlers.set(event, handler),
 		getSessionName: () => state.name,
 	};
 	register(pi as any);
@@ -161,4 +164,24 @@ test("non-TUI sessions report nothing", async () => {
 test("session names are flattened to one line", () => {
 	assert.equal(sanitizeSessionName(" Fix\r\nauth\t flow "), "Fix auth flow");
 	assert.equal(sanitizeSessionName(undefined), "");
+});
+
+test("rejected reports are not treated as delivered and are retried", async () => {
+	// Reject the clear and the title report; the token report is accepted.
+	const h = await harness({ reject: 2 });
+	h.emit("session_start");
+	h.rename("Refactor auth");
+	// A rejection is final for that attempt: no immediate resend of the same request.
+	assert.deepEqual(await h.reported(3), [clearReport, ...nameReports("Refactor auth")]);
+	assert.deepEqual(await h.reported(5, 7_000), [clearReport, ...nameReports("Refactor auth"), ...nameReports("Refactor auth")]);
+});
+
+test("shutdown waits until the clear is delivered", async () => {
+	const h = await harness();
+	h.emit("session_start");
+	h.rename("Refactor auth");
+	await h.emit("session_shutdown");
+	// The clear arrived before the shutdown handler resolved, without extra waiting.
+	assert.deepEqual(h.requests.at(-1)?.params.clear_title, true);
+	assert.equal(h.requests.length, 4);
 });

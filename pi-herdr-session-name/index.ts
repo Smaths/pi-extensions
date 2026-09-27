@@ -12,44 +12,72 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const SOURCE = "user:pi-session-name";
 const TOKEN = "pi_session_name";
 const TOKEN_TTL_MS = 86_400_000;
+// Re-send before the token TTL lapses so long-lived panes keep the sidebar row.
+const REFRESH_INTERVAL_MS = TOKEN_TTL_MS / 2;
 const RETRY_INTERVAL_MS = 5_000;
+const MAX_RETRY_INTERVAL_MS = 300_000;
+const ATTEMPT_TIMEOUTS_MS = [500, 1_500];
+// Keep exit fast when Herdr is gone.
+const SHUTDOWN_ATTEMPT_TIMEOUTS_MS = [500];
 
 function sanitizeSessionName(name: string | undefined): string {
 	return (name ?? "").replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
 }
 
-function sendRequestAttempt(endpoint: string, request: unknown, timeoutMs: number): Promise<boolean> {
+type Delivery = "delivered" | "rejected" | "failed";
+
+function replyStatus(line: string): Delivery {
+	try {
+		const reply = JSON.parse(line);
+		return reply?.error ? "rejected" : "delivered";
+	} catch {
+		// Herdr answered, even if in an unexpected format; do not retry.
+		return "delivered";
+	}
+}
+
+function sendRequestAttempt(endpoint: string, request: unknown, timeoutMs: number): Promise<Delivery> {
 	return new Promise((resolve) => {
 		let settled = false;
 		let timeout: ReturnType<typeof setTimeout> | undefined;
 		let socket: net.Socket;
-		const finish = (delivered: boolean) => {
+		let buffer = "";
+		const finish = (delivery: Delivery) => {
 			if (settled) return;
 			settled = true;
 			if (timeout) clearTimeout(timeout);
 			socket.destroy();
-			resolve(delivered);
+			resolve(delivery);
 		};
 
 		try {
 			socket = net.createConnection(endpoint);
 		} catch {
-			resolve(false);
+			resolve("failed");
 			return;
 		}
 
-		socket.on("error", () => finish(false));
+		socket.setEncoding("utf8");
+		socket.on("error", () => finish("failed"));
 		socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-		socket.on("data", () => finish(true));
-		socket.on("end", () => finish(false));
-		timeout = setTimeout(() => finish(false), timeoutMs);
+		socket.on("data", (chunk: string) => {
+			buffer += chunk;
+			const newline = buffer.indexOf("\n");
+			if (newline >= 0) finish(replyStatus(buffer.slice(0, newline)));
+		});
+		socket.on("end", () => finish(buffer ? replyStatus(buffer) : "failed"));
+		timeout = setTimeout(() => finish("failed"), timeoutMs);
 		timeout.unref?.();
 	});
 }
 
-async function sendRequest(endpoint: string, request: unknown): Promise<boolean> {
-	if (await sendRequestAttempt(endpoint, request, 500)) return true;
-	return sendRequestAttempt(endpoint, request, 1_500);
+async function sendRequest(endpoint: string, request: unknown, timeoutsMs: number[]): Promise<boolean> {
+	// Only transport failures are retried; resending a rejected request cannot help.
+	for (const timeoutMs of timeoutsMs) {
+		const delivery = await sendRequestAttempt(endpoint, request, timeoutMs);
+		if (delivery !== "failed") return delivery === "delivered";
+	}
+	return false;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -62,6 +90,8 @@ export default function (pi: ExtensionAPI) {
 
 	let active = false;
 	let retryTimer: ReturnType<typeof setTimeout> | undefined;
+	let retryDelay = RETRY_INTERVAL_MS;
+	let refreshTimer: ReturnType<typeof setInterval> | undefined;
 	let reportSeq = Date.now() * 1_000;
 	let pending = Promise.resolve();
 	// Name most recently sent, in flight, or awaiting a retry.
@@ -72,15 +102,14 @@ export default function (pi: ExtensionAPI) {
 		return reportSeq;
 	}
 
-	function enqueue(params: Record<string, unknown>): Promise<boolean> {
-		const result = pending.then(() =>
-			sendRequest(endpoint!, {
-				id: `${SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-				method: "pane.report_metadata",
-				// `agent` keeps the title from applying if another agent takes over the pane.
-				params: { pane_id: paneId, source: SOURCE, agent: "pi", seq: nextSeq(), ...params },
-			}),
-		);
+	function enqueue(params: Record<string, unknown>, timeoutsMs = ATTEMPT_TIMEOUTS_MS): Promise<boolean> {
+		const request = {
+			id: `${SOURCE}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+			method: "pane.report_metadata",
+			// `agent` keeps the title from applying if another agent takes over the pane.
+			params: { pane_id: paneId, source: SOURCE, agent: "pi", seq: nextSeq(), ...params },
+		};
+		const result = pending.then(() => sendRequest(endpoint!, request, timeoutsMs));
 		pending = result.then(
 			() => undefined,
 			() => undefined,
@@ -114,20 +143,25 @@ export default function (pi: ExtensionAPI) {
 		cancelRetry();
 
 		void publish(name).then((delivered) => {
-			if (delivered || !active || requestedName !== name) return;
+			if (!active || requestedName !== name) return;
+			if (delivered) {
+				retryDelay = RETRY_INTERVAL_MS;
+				return;
+			}
 			retryTimer = setTimeout(() => {
 				retryTimer = undefined;
 				requestedName = undefined;
 				sync();
-			}, RETRY_INTERVAL_MS);
+			}, retryDelay);
 			retryTimer.unref?.();
+			retryDelay = Math.min(retryDelay * 2, MAX_RETRY_INTERVAL_MS);
 		});
 	}
 
-	function clear(): void {
+	function clear(timeoutsMs = ATTEMPT_TIMEOUTS_MS): Promise<boolean> {
 		cancelRetry();
 		requestedName = "";
-		void enqueue(clearParams());
+		return enqueue(clearParams(), timeoutsMs);
 	}
 
 	function sync(): void {
@@ -139,8 +173,16 @@ export default function (pi: ExtensionAPI) {
 		if (ctx.mode !== "tui") return;
 
 		active = true;
-		clear();
+		retryDelay = RETRY_INTERVAL_MS;
+		void clear();
 		sync();
+		if (refreshTimer) clearInterval(refreshTimer);
+		refreshTimer = setInterval(() => {
+			if (!active || !requestedName) return;
+			requestedName = undefined;
+			sync();
+		}, REFRESH_INTERVAL_MS);
+		refreshTimer.unref?.();
 	});
 
 	pi.on("session_info_changed", (event) => {
@@ -153,10 +195,13 @@ export default function (pi: ExtensionAPI) {
 		sync();
 	});
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", async () => {
 		if (!active) return;
 		active = false;
-		clear();
+		if (refreshTimer) clearInterval(refreshTimer);
+		refreshTimer = undefined;
+		// Pi awaits shutdown handlers, so the clear lands before the process exits.
+		await clear(SHUTDOWN_ATTEMPT_TIMEOUTS_MS);
 	});
 }
 
