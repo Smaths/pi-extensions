@@ -1,9 +1,12 @@
 {
-  "name": "pi-auto-session-name",
+  "name": "@snarfum/pi-auto-session-name",
   "version": "0.1.0",
-  "description": "Private-by-default automatic Pi session names",
+  "description": "Minimal verb-first Pi session names with model rewriting and local fallback",
   "type": "module",
   "keywords": ["pi-package"],
+  "publishConfig": {
+    "access": "public"
+  },
   "files": ["index.ts", "README.md"],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

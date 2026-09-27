@@ -2,21 +2,23 @@
 
 Names a new, unnamed Pi session after the first text-only user prompt, once the
 first agent run settles. Resumed and manually named sessions are never renamed.
-Names are short (at most 40 characters), and the default heuristic runs entirely
-locally: it does not send the prompt to another model.
+Names use a minimal commit-style format: an action verb first, followed by up
+to two words of context. They are capped at three words and 40 characters. For
+every eligible text prompt, the extension requests a concise rewrite from a
+separate low-effort model. If that call fails, it falls back to a local title.
 
-Install with `pi install --local ./pi-auto-session-name` from the repository root,
-or load temporarily with `pi -e ./pi-auto-session-name`.
+Install with `pi install npm:@snarfum/pi-auto-session-name`, or install locally
+with `pi install --local ./pi-auto-session-name` from the repository root. You
+can load it temporarily with `pi -e ./pi-auto-session-name`.
 
-For long or ambiguous prompts only, opt in to a separate, low-effort model call:
+The default title model is `openai-codex/gpt-6-luna`; override it by setting
+`PI_AUTO_SESSION_NAME_MODEL=provider/model-id` before launching Pi. The title
+prompt asks for an imperative verb-first name such as “Fix login timeout” rather
+than copying request wording verbatim.
 
-```sh
-PI_AUTO_SESSION_NAME_MODE=hybrid pi -e ./pi-auto-session-name
-```
-
-The default model is `openai/gpt-6-luna`; override with
-`PI_AUTO_SESSION_NAME_MODEL=provider/model-id`. Pi must list the model and have
-configured authentication. Hybrid mode sends up to 1,200 characters of the
-first text prompt to that provider. If unavailable, unauthenticated, timed out,
-or unsuccessful, it uses the local title. The active model and conversation are
-unchanged. Set the environment variables before launching Pi.
+Pi must list the model and have configured authentication. **Every eligible first text prompt
+sends up to 1,200 characters to the title model**, so avoid loading the
+extension where that disclosure is inappropriate. If the model is unavailable,
+unauthenticated, times out after five seconds, or fails, the local title is
+used instead. This does not change the active conversation model or insert the
+title request into the conversation.
