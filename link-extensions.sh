@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Link every top-level directory in this repository into Pi's user extension
+# Link every top-level Pi package in this repository into Pi's user extension
 # directory. Pass a directory to use a different destination.
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 target_dir="${1:-${PI_EXTENSIONS_DIR:-$HOME/.pi/agent/extensions}}"
@@ -11,7 +11,7 @@ target_dir="$(cd "$target_dir" && pwd -P)"
 
 linked=0
 for source in "$repo_root"/*/; do
-  [[ -d "$source" ]] || continue
+  [[ -d "$source" && -f "$source/package.json" ]] || continue
 
   source="${source%/}"
   name="${source##*/}"

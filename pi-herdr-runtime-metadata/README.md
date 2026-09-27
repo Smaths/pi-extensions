@@ -1,6 +1,8 @@
-# Herdr Pi runtime metadata
+# Pi Herdr runtime metadata
 
 Reports Pi’s active model and thinking level as display-only Herdr metadata.
+
+Install with `pi install npm:@snarfum/pi-herdr-runtime-metadata`.
 
 This is an optional companion to Herdr’s managed agent-state integration. It is
 safe to load outside Herdr and becomes active only when `HERDR_ENV`,

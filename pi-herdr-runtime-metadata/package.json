@@ -1,9 +1,12 @@
 {
-  "name": "pi-herdr-runtime-metadata",
+  "name": "@snarfum/pi-herdr-runtime-metadata",
   "version": "0.1.0",
   "description": "Pi runtime metadata reporting for Herdr",
   "type": "module",
   "keywords": ["pi-package"],
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "index.ts",
     "README.md",

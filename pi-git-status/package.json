@@ -1,9 +1,12 @@
 {
-  "name": "pi-herdr-git-status",
+  "name": "@snarfum/pi-git-status",
   "version": "0.1.0",
   "description": "Git status and session usage footer for Pi",
   "type": "module",
   "keywords": ["pi-package"],
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "index.ts",
     "README.md",
