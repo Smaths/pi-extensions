@@ -61,7 +61,7 @@ async function modelTitle(prompt: string, ctx: ExtensionContext): Promise<string
 			model,
 			{
 				systemPrompt: "Name this session like a concise commit message: use a present-tense action verb first, then up to two words of context. Use at most three words total. Return only the name. Omit filler, details, punctuation, markdown, private data, identifiers, and paths.",
-				messages: [{ role: "user", content: [{ type: "text", text: prompt.slice(0, MAX_MODEL_INPUT) }], timestamp: Date.now() }],
+				messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
 			},
 			{ reasoningEffort: "low", maxTokens: 24, signal: controller.signal, cacheRetention: "none" }
 		);
@@ -105,7 +105,8 @@ export default function (pi: ExtensionAPI) {
 		if (attempted || !eligibleSession || ctx.sessionManager.getSessionId() !== eligibleSession) return;
 		attempted = true;
 		if (pi.getSessionName()) return;
-		const prompt = firstUserPrompt(ctx);
+		// Titles use at most three words, so a large pasted prompt needs no full scan.
+		const prompt = firstUserPrompt(ctx)?.slice(0, MAX_MODEL_INPUT);
 		if (!prompt) return;
 		const local = normalizeTitle(prompt);
 		const currentGeneration = generation;
