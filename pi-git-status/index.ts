@@ -3,7 +3,9 @@ import { relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-const REFRESH_INTERVAL_MS = 5_000;
+// Agent turns trigger refreshes directly; polling only catches edits made outside Pi.
+const REFRESH_INTERVAL_MS = 10_000;
+const NON_REPO_REFRESH_INTERVAL_MS = 60_000;
 const GIT_STATUS_TIMEOUT_MS = 2_000;
 
 type GitStatus = {
@@ -115,19 +117,20 @@ function formatTokens(value: number): string {
 	return `${(value / 1_000_000).toFixed(1)}M`;
 }
 
-function getUsage(ctx: ExtensionContext): { input: number; output: number; cost: number } {
-	let input = 0;
-	let output = 0;
-	let cost = 0;
+type Usage = { input: number; output: number; cost: number };
 
+function getUsage(ctx: ExtensionContext): Usage {
+	const usage: Usage = { input: 0, output: 0, cost: 0 };
 	for (const entry of ctx.sessionManager.getEntries()) {
-		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		input += entry.message.usage.input;
-		output += entry.message.usage.output;
-		cost += entry.message.usage.cost.total;
+		if (entry.type === "message" && entry.message.role === "assistant") addUsage(usage, entry.message.usage);
 	}
+	return usage;
+}
 
-	return { input, output, cost };
+function addUsage(usage: Usage, message: { input: number; output: number; cost: { total: number } }): void {
+	usage.input += message.input;
+	usage.output += message.output;
+	usage.cost += message.cost.total;
 }
 
 function sanitizeStatusText(text: string): string {
@@ -135,39 +138,77 @@ function sanitizeStatusText(text: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
-	let refreshTimer: ReturnType<typeof setInterval> | undefined;
-	let disposed = false;
+	// Identifies the active TUI session so work started by an earlier session is discarded.
+	let session: { ctx: ExtensionContext } | undefined;
+	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let refreshing = false;
+	let refreshQueued = false;
 	let gitStatus: GitStatus = { ...EMPTY_STATUS };
+	let usage: Usage = { input: 0, output: 0, cost: 0 };
+	let sessionName: string | undefined;
 	let requestFooterRender: (() => void) | undefined;
 
-	async function refresh(ctx: ExtensionContext): Promise<void> {
-		if (disposed || refreshing) return;
+	function cancelScheduledRefresh(): void {
+		if (refreshTimer) clearTimeout(refreshTimer);
+		refreshTimer = undefined;
+	}
+
+	function scheduleRefresh(): void {
+		cancelScheduledRefresh();
+		refreshTimer = setTimeout(requestRefresh, gitStatus.isRepo ? REFRESH_INTERVAL_MS : NON_REPO_REFRESH_INTERVAL_MS);
+		refreshTimer.unref?.();
+	}
+
+	function requestRefresh(): void {
+		if (!session) return;
+		// Coalesce bursts of events into one follow-up run instead of dropping them.
+		if (refreshing) {
+			refreshQueued = true;
+			return;
+		}
+		void refresh(session);
+	}
+
+	async function refresh(current: { ctx: ExtensionContext }): Promise<void> {
 		refreshing = true;
+		refreshQueued = false;
+		cancelScheduledRefresh();
 
 		try {
 			const result = await pi.exec(
 				"git",
 				["--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=normal"],
-				{ cwd: ctx.cwd, timeout: GIT_STATUS_TIMEOUT_MS },
+				{ cwd: current.ctx.cwd, timeout: GIT_STATUS_TIMEOUT_MS },
 			);
-			gitStatus = result.code === 0 ? parseGitStatus(result.stdout) : { ...EMPTY_STATUS };
+			if (current !== session) return;
+			// A timed-out git is reported with code 0 and partial output, so check `killed` too.
+			gitStatus = result.code === 0 && !result.killed ? parseGitStatus(result.stdout) : { ...EMPTY_STATUS };
 			requestFooterRender?.();
 		} finally {
 			refreshing = false;
+			if (refreshQueued || (session && current !== session)) requestRefresh();
+			else if (current === session) scheduleRefresh();
 		}
 	}
 
-	pi.on("session_start", async (_event, ctx) => {
+	function syncSessionData(ctx: ExtensionContext): void {
+		usage = getUsage(ctx);
+		sessionName = pi.getSessionName();
+		requestFooterRender?.();
+	}
+
+	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 
-		disposed = false;
+		cancelScheduledRefresh();
+		session = { ctx };
 		gitStatus = { ...EMPTY_STATUS };
+		syncSessionData(ctx);
 
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			requestFooterRender = () => tui.requestRender();
 			const unsubscribeBranchChanges = footerData.onBranchChange(() => {
-				void refresh(ctx);
+				requestRefresh();
 				tui.requestRender();
 			});
 
@@ -179,16 +220,14 @@ export default function (pi: ExtensionAPI) {
 				invalidate() {},
 				render(width: number): string[] {
 					const branch = footerData.getGitBranch() ?? gitStatus.branch;
-					let location = formatCwd(ctx.cwd);
+					// Style each segment separately: a nested color resets the outer dim color.
+					let location = theme.fg("dim", formatCwd(ctx.cwd));
 					if (branch) {
 						const state = gitStatus.isRepo ? ` ${formatGitState(gitStatus, theme)}` : "";
-						location += ` (${branch}${state})`;
+						location += `${theme.fg("dim", ` (${branch}`)}${state}${theme.fg("dim", ")")}`;
 					}
+					if (sessionName) location += theme.fg("dim", ` • ${sessionName}`);
 
-					const sessionName = ctx.sessionManager.getSessionName();
-					if (sessionName) location += ` • ${sessionName}`;
-
-					const usage = getUsage(ctx);
 					const contextUsage = ctx.getContextUsage();
 					const contextWindow = contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 					const contextDisplay =
@@ -205,7 +244,7 @@ export default function (pi: ExtensionAPI) {
 					const rightStyled = theme.fg("dim", right);
 					const padding = " ".repeat(Math.max(1, width - visibleWidth(leftStyled) - visibleWidth(rightStyled)));
 					const lines = [
-						truncateToWidth(theme.fg("dim", location), width, theme.fg("dim", "...")),
+						truncateToWidth(location, width, theme.fg("dim", "...")),
 						truncateToWidth(leftStyled + padding + rightStyled, width),
 					];
 
@@ -222,15 +261,39 @@ export default function (pi: ExtensionAPI) {
 			};
 		});
 
-		await refresh(ctx);
-		refreshTimer = setInterval(() => void refresh(ctx), REFRESH_INTERVAL_MS);
-		refreshTimer.unref?.();
+		// Do not await: Pi runs session_start handlers in sequence, and git can be slow.
+		requestRefresh();
+	});
+
+	// Usage is accumulated from events instead of rescanning every entry on each render.
+	pi.on("message_end", (event) => {
+		if (!session || event.message.role !== "assistant") return;
+		addUsage(usage, event.message.usage);
+		requestFooterRender?.();
+	});
+
+	pi.on("session_info_changed", (event) => {
+		if (!session) return;
+		sessionName = event.name;
+		requestFooterRender?.();
+	});
+
+	// Agent tools usually change the working tree, so refresh once per turn.
+	pi.on("turn_end", () => {
+		requestRefresh();
+	});
+
+	pi.on("agent_settled", (_event, ctx) => {
+		if (!session) return;
+		// Resynchronize with the stored session in case an update was missed.
+		syncSessionData(ctx);
+		requestRefresh();
 	});
 
 	pi.on("session_shutdown", () => {
-		disposed = true;
-		if (refreshTimer) clearInterval(refreshTimer);
-		refreshTimer = undefined;
+		session = undefined;
+		cancelScheduledRefresh();
+		refreshQueued = false;
 		requestFooterRender = undefined;
 		gitStatus = { ...EMPTY_STATUS };
 	});
