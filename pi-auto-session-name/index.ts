@@ -32,16 +32,6 @@ export function normalizeTitle(text: string): string {
 	return title[0].toUpperCase() + title.slice(1);
 }
 
-function firstUserPrompt(ctx: ExtensionContext): string | undefined {
-	const userMessages = ctx.sessionManager.getBranch().filter((entry) => entry.type === "message" && entry.message.role === "user");
-	if (userMessages.length !== 1) return;
-	const content = userMessages[0].message.content;
-	if (typeof content === "string") return content.trim() || undefined;
-	// Mixed image/text prompts are deliberately excluded.
-	if (!Array.isArray(content) || !content.length || content.some((part) => part.type !== "text" || typeof part.text !== "string")) return;
-	return content.map((part) => part.type === "text" ? part.text : "").join("\n").trim() || undefined;
-}
-
 function modelChoice(): { provider: string; id: string } | undefined {
 	const choice = process.env.PI_AUTO_SESSION_NAME_MODEL || "openai-codex/gpt-6-luna";
 	const separator = choice.indexOf("/");
@@ -49,10 +39,9 @@ function modelChoice(): { provider: string; id: string } | undefined {
 	return { provider: choice.slice(0, separator), id: choice.slice(separator + 1) };
 }
 
-async function modelTitle(prompt: string, ctx: ExtensionContext): Promise<string | undefined> {
+async function modelTitle(prompt: string, ctx: ExtensionContext, controller: AbortController): Promise<string | undefined> {
 	const choice = modelChoice();
 	if (!choice) return;
-	const controller = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const model = ctx.modelRegistry.find(choice.provider, choice.id);
@@ -67,7 +56,12 @@ async function modelTitle(prompt: string, ctx: ExtensionContext): Promise<string
 		);
 		const response = await Promise.race([
 			request,
-			new Promise<undefined>((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(undefined); }, MODEL_TIMEOUT_MS); }),
+			new Promise<undefined>((resolve) => {
+				controller.signal.addEventListener("abort", () => resolve(undefined), { once: true });
+				timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
+				// Do not keep a finished print or RPC run alive for the title.
+				timer.unref?.();
+			}),
 		]);
 		if (!response || controller.signal.aborted || response.stopReason !== "stop") return;
 		return response.content.filter((part): part is { type: "text"; text: string } => part.type === "text").map((part) => part.text).join(" ");
@@ -80,12 +74,10 @@ async function modelTitle(prompt: string, ctx: ExtensionContext): Promise<string
 
 export default function (pi: ExtensionAPI) {
 	let eligibleSession: string | undefined;
-	let attempted = false;
-	let generation = 0;
+	let inputText = "";
+	let pending: { local: string; controller: AbortController } | undefined;
 
 	pi.on("session_start", (event, ctx) => {
-		generation++;
-		attempted = false;
 		// Pi records the initial model and thinking level before session_start.
 		// A previously saved session file (including a metadata-only one) is not new.
 		const sessionFile = ctx.sessionManager.getSessionFile();
@@ -98,21 +90,50 @@ export default function (pi: ExtensionAPI) {
 			: undefined;
 	});
 	pi.on("session_shutdown", () => {
-		generation++;
 		eligibleSession = undefined;
+		if (!pending) return;
+		const { local, controller } = pending;
+		pending = undefined;
+		controller.abort();
+		// Keep a session that closes before the title model answers named.
+		if (local && !pi.getSessionName()) pi.setSessionName(local);
 	});
-	pi.on("agent_settled", async (_event, ctx) => {
-		if (attempted || !eligibleSession || ctx.sessionManager.getSessionId() !== eligibleSession) return;
-		attempted = true;
-		if (pi.getSessionName()) return;
+
+	// Name `/skill:name args` and `/template args` from their args, not the expanded text.
+	function withoutCommand(text: string): string {
+		const match = /^\/(\S+)(?:\s+|$)/.exec(text);
+		return match && pi.getCommands().some((command) => command.name === match[1]) ? text.slice(match[0].length) : text;
+	}
+
+	async function nameSession(prompt: string, ctx: ExtensionContext): Promise<void> {
+		const naming = { local: normalizeTitle(prompt), controller: new AbortController() };
+		pending = naming;
+		const suggested = normalizeTitle((await modelTitle(prompt, ctx, naming.controller)) ?? "");
+		// Shutdown clears `pending` and leaves ctx and pi stale, so check it before using either.
+		if (pending !== naming) return;
+		pending = undefined;
+		const title = suggested && (suggested.includes(" ") || !naming.local) ? suggested : naming.local;
+		if (!title || pi.getSessionName()) return;
+		try {
+			pi.setSessionName(title);
+		} catch (error) {
+			if (ctx.hasUI) ctx.ui.notify(`Could not set session name: ${error instanceof Error ? error.message : String(error)}`, "warning");
+		}
+	}
+
+	// before_agent_start only sees the expanded prompt, so keep the raw text from input.
+	pi.on("input", (event) => {
+		inputText = event.text;
+	});
+
+	// Name at run start without blocking it. Steers and follow-ups never reach before_agent_start.
+	pi.on("before_agent_start", (_event, ctx) => {
+		if (!eligibleSession || ctx.sessionManager.getSessionId() !== eligibleSession || pi.getSessionName()) return;
 		// Titles use at most three words, so a large pasted prompt needs no full scan.
-		const prompt = firstUserPrompt(ctx)?.slice(0, MAX_MODEL_INPUT);
+		const prompt = withoutCommand(inputText).trim().slice(0, MAX_MODEL_INPUT);
+		// A bare command or image leaves nothing to name; let the next prompt try.
 		if (!prompt) return;
-		const local = normalizeTitle(prompt);
-		const currentGeneration = generation;
-		const suggested = normalizeTitle((await modelTitle(prompt, ctx)) ?? "");
-		const title = suggested && (suggested.includes(" ") || !local) ? suggested : local;
-		if (!title || generation !== currentGeneration || ctx.sessionManager.getSessionId() !== eligibleSession || pi.getSessionName()) return;
-		pi.setSessionName(title);
+		eligibleSession = undefined;
+		void nameSession(prompt, ctx);
 	});
 }
