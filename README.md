@@ -17,14 +17,28 @@ The two `pi-herdr-*` packages are the only Herdr-specific extensions.
 
 ## Installation
 
-Install individual published packages with Pi:
+Install every extension from GitHub with Pi:
 
 ```sh
-pi install npm:@snarfum/pi-git-status
-pi install npm:@snarfum/pi-auto-session-name
-pi install npm:@snarfum/pi-herdr-runtime-metadata
-pi install npm:@snarfum/pi-herdr-session-name
+pi install git:github.com/Smaths/pi-extensions
 ```
+
+Run `pi update --extensions` to pull the latest changes. To load only some
+extensions, disable the others with `pi config`, or filter the package in
+`~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/Smaths/pi-extensions",
+      "extensions": ["pi-git-status/index.ts", "pi-auto-session-name/index.ts"]
+    }
+  ]
+}
+```
+
+The Herdr extensions stay inactive outside Herdr, so installing them is harmless.
 
 For local development, install one package from this repository with
 `pi install --local ./<extension-directory>` or load it temporarily with
@@ -42,7 +56,9 @@ The Herdr integrations are active only when Herdr sets `HERDR_ENV=1`,
 `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID`. Herdr manages the agent-state
 integration; do not install a duplicate copy.
 
-Each package is versioned and published independently.
+Each extension directory is also a standalone package that can be versioned
+and published independently. The root `package.json` only exists for git
+installs and must stay private.
 
 ## License
 
