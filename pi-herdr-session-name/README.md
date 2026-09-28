@@ -2,7 +2,7 @@
 
 Publishes Pi's current session name to Herdr as the pane title and as the
 display-only `pi_session_name` token. This pairs with `pi-auto-session-name`:
-when that extension names the session after its first settled run, the name
+when that extension names the session as its first run starts, the name
 appears on the Pi pane's border. It updates on `/name` and clears on `/new` and
 on exit.
 
