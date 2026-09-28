@@ -2,6 +2,12 @@
   "name": "@snarfum/pi-herdr-session-name",
   "version": "0.1.0",
   "description": "Publish the Pi session name as the Herdr pane title and sidebar metadata",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Smaths/pi-extensions.git",
+    "directory": "pi-herdr-session-name"
+  },
   "type": "module",
   "keywords": ["pi-package"],
   "publishConfig": {

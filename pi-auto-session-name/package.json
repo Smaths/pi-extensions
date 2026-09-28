@@ -2,6 +2,12 @@
   "name": "@snarfum/pi-auto-session-name",
   "version": "0.1.0",
   "description": "Minimal verb-first Pi session names with model rewriting and local fallback",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Smaths/pi-extensions.git",
+    "directory": "pi-auto-session-name"
+  },
   "type": "module",
   "keywords": ["pi-package"],
   "publishConfig": {

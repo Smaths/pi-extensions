@@ -2,6 +2,12 @@
   "name": "@snarfum/pi-git-status",
   "version": "0.1.0",
   "description": "Git status and session usage footer for Pi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Smaths/pi-extensions.git",
+    "directory": "pi-git-status"
+  },
   "type": "module",
   "keywords": ["pi-package"],
   "publishConfig": {

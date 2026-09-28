@@ -2,6 +2,12 @@
   "name": "@snarfum/pi-herdr-runtime-metadata",
   "version": "0.1.0",
   "description": "Pi runtime metadata reporting for Herdr",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Smaths/pi-extensions.git",
+    "directory": "pi-herdr-runtime-metadata"
+  },
   "type": "module",
   "keywords": ["pi-package"],
   "publishConfig": {

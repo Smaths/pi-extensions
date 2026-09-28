@@ -43,3 +43,7 @@ The Herdr integrations are active only when Herdr sets `HERDR_ENV=1`,
 integration; do not install a duplicate copy.
 
 Each package is versioned and published independently.
+
+## License
+
+[MIT](LICENSE)
