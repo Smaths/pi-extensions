@@ -1,7 +1,7 @@
 {
   "name": "@snarfum/pi-git-status",
-  "version": "0.1.0",
-  "description": "Git status and session usage footer for Pi",
+  "version": "0.2.0",
+  "description": "Git state in Pi's native shared status row",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -19,8 +19,7 @@
     "screenshot.png"
   ],
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-coding-agent": "*"
   },
   "pi": {
     "extensions": [

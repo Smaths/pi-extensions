@@ -7,7 +7,8 @@ extensions, including optional integrations for [Herdr](https://github.com/Smath
 
 | Extension | Preview | Description |
 | --- | --- | --- |
-| [`@snarfum/pi-git-status`](pi-git-status/) | <img src="img/pi-git-status.png" alt="Pi Git status footer" width="360"> | Shows repository state, session usage, context usage, and the active model in Pi’s footer. This extension does not require Herdr. |
+| [`@snarfum/pi-git-status`](pi-git-status/) | <img src="img/pi-git-status.png" alt="Illustrative Pi native Git status row" width="360"> | Adds Git state to Pi’s native shared status row without replacing the built-in footer or requiring Herdr. |
+| [`@snarfum/pi-context-indicator`](pi-context-indicator/) | <img src="img/pi-context-indicator.png" alt="Illustrative Pi native context status row" width="360"> | Adds a four-cell context gauge to Pi’s native shared status row, with a color-independent warning at 25%. |
 | [`@snarfum/pi-auto-session-name`](pi-auto-session-name/) | <img src="img/pi-auto-session-name.png" alt="Illustration of a prompt becoming a short session name" width="360"> | Names new sessions with a minimal, verb-first action title of up to three words. |
 | [`@snarfum/pi-herdr-runtime-metadata`](pi-herdr-runtime-metadata/) | <img src="img/pi-herdr-runtime-metadata.png" alt="Herdr Pi runtime metadata" width="360"> | Reports Pi’s active model and thinking level as display-only Herdr metadata. |
 | [`@snarfum/pi-herdr-session-name`](pi-herdr-session-name/) | <img src="img/pi-herdr-session-name.png" alt="Herdr Pi session name" width="360"> | Publishes Pi’s session name as the Herdr pane title and for an optional third Agent sidebar row. |
